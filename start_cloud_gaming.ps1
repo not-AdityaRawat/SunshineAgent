@@ -10,6 +10,9 @@ Start-Process "C:\moonlight-web-stream\web-server.exe" -WorkingDirectory "C:\moo
 # Start Moonlight Web Stream Streamer (Update path as needed)
 Start-Process "C:\moonlight-web-stream\Streamer.exe" -WorkingDirectory "C:\moonlight-web-stream" -WindowStyle Hidden
 
+# Start Nginx (Update path as needed)
+Start-Process "C:\nginx\nginx.exe" -WorkingDirectory "C:\nginx" -WindowStyle Hidden
+
 # Wait 5 seconds for services to start
 Start-Sleep -Seconds 5
 
