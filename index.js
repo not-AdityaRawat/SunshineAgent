@@ -9,6 +9,7 @@ const { exec } = require('child_process');
 const axios = require('axios');
 const os = require('os');
 const fs = require('fs');
+const https = require('https');
 
 const app = express();
 app.use(express.json());
@@ -102,14 +103,17 @@ app.post('/pair', auth, async (req, res) => {
 // 4.6. POST /unpair
 app.post('/unpair', auth, async (req, res) => {
   try {
-    const clientsRes = await axios.get('http://localhost:47990/api/clients', {
+    const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+    const clientsRes = await axios.get('https://localhost:47990/api/clients', {
       auth: { username: 'admin', password: SUNSHINE_PASS },
+      httpsAgent,
       timeout: 2000
     });
     const clients = clientsRes.data?.clients || [];
     for (const client of clients) {
-      await axios.delete(`http://localhost:47990/api/clients/${client.client_id}`, {
+      await axios.delete(`https://localhost:47990/api/clients/${client.client_id}`, {
         auth: { username: 'admin', password: SUNSHINE_PASS },
+        httpsAgent,
         timeout: 2000
       });
     }
