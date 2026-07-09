@@ -3,6 +3,7 @@
 // It listens on port 9999 and is called only by the backend Express API.
 // Every route requires the header: x-agent-secret matching process.env.AGENT_SECRET.
 
+require('dotenv').config();
 const express = require('express');
 const { exec } = require('child_process');
 const axios = require('axios');
@@ -94,6 +95,27 @@ app.post('/pair', auth, async (req, res) => {
     res.json({ status: 'paired' });
   } catch (err) {
     console.error("Sunshine pairing error:", err.message);
+    res.status(500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// 4.6. POST /unpair
+app.post('/unpair', auth, async (req, res) => {
+  try {
+    const clientsRes = await axios.get('http://localhost:47990/api/clients', {
+      auth: { username: 'admin', password: SUNSHINE_PASS },
+      timeout: 2000
+    });
+    const clients = clientsRes.data?.clients || [];
+    for (const client of clients) {
+      await axios.delete(`http://localhost:47990/api/clients/${client.client_id}`, {
+        auth: { username: 'admin', password: SUNSHINE_PASS },
+        timeout: 2000
+      });
+    }
+    res.json({ status: 'unpaired' });
+  } catch (err) {
+    console.error("Sunshine unpair error:", err.message);
     res.status(500).json({ error: err.response?.data || err.message });
   }
 });
