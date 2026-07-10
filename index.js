@@ -104,23 +104,59 @@ app.post('/pair', auth, async (req, res) => {
 app.post('/unpair', auth, async (req, res) => {
   try {
     const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-    const clientsRes = await axios.get('https://localhost:47990/api/clients', {
+    await axios.post('https://localhost:47990/api/clients/unpair-all', {}, {
       auth: { username: 'admin', password: SUNSHINE_PASS },
       httpsAgent,
       timeout: 2000
     });
-    const clients = clientsRes.data?.clients || [];
-    for (const client of clients) {
-      await axios.delete(`https://localhost:47990/api/clients/${client.client_id}`, {
-        auth: { username: 'admin', password: SUNSHINE_PASS },
-        httpsAgent,
-        timeout: 2000
-      });
-    }
     res.json({ status: 'unpaired' });
   } catch (err) {
     console.error("Sunshine unpair error:", err.message);
     res.status(500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// 4.7. POST /reset-moonlight-pairing
+// Wipes stale pair_info from Moonlight data.json and restarts web-server.exe.
+// Called when Sunshine regenerates its TLS certificate (e.g. after EC2 restart)
+// and the stored server_certificate in data.json is no longer valid.
+const MOONLIGHT_DATA_PATH = 'C:\\package(moonlight)\\data.json';
+
+app.post('/reset-moonlight-pairing', auth, (req, res) => {
+  try {
+    // Read Moonlight's database
+    const raw = fs.readFileSync(MOONLIGHT_DATA_PATH, 'utf-8');
+    const data = JSON.parse(raw);
+
+    // Null out pair_info for every registered host so fresh pairing is triggered
+    if (data.hosts) {
+      for (const hostId of Object.keys(data.hosts)) {
+        data.hosts[hostId].pair_info = null;
+      }
+    }
+
+    // Write back
+    fs.writeFileSync(MOONLIGHT_DATA_PATH, JSON.stringify(data, null, 4), 'utf-8');
+    console.log('Moonlight data.json pair_info cleared.');
+
+    // Restart web-server.exe so it reloads the updated data.json
+    exec('taskkill /F /IM web-server.exe 2>nul', () => {
+      setTimeout(() => {
+        exec(
+          'Start-Process "C:\\package(moonlight)\\web-server.exe" -WorkingDirectory "C:\\package(moonlight)" -WindowStyle Hidden',
+          { shell: 'powershell' },
+          (err) => {
+            if (err) console.error('Failed to restart web-server.exe:', err.message);
+            else console.log('web-server.exe restarted.');
+          }
+        );
+      }, 1500); // Brief pause to let the process fully terminate
+    });
+
+    res.json({ status: 'pairing_reset', message: 'Moonlight pair_info cleared and web-server.exe restarting.' });
+  } catch (err) {
+    console.error('reset-moonlight-pairing error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
