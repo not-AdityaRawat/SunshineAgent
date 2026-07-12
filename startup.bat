@@ -9,6 +9,7 @@ taskkill /F /IM sunshine.exe /T >nul 2>&1
 timeout /t 2 /nobreak > nul
 
 echo [1/6] Initializing Sunshine Database...
+del /q "C:\Program Files\Sunshine\config\sunshine_state.json" >nul 2>&1
 cd /d "C:\Program Files\Sunshine"
 start "" "sunshine.exe"
 timeout /t 3 /nobreak > nul
