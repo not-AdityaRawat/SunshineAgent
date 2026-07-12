@@ -8,10 +8,10 @@ taskkill /F /IM web-server.exe /T >nul 2>&1
 timeout /t 2 /nobreak > nul
 
 echo [1/6] Setting Sunshine Web UI credentials automatically...
-"C:\Program Files\Sunshine\sunshine.exe" --creds admin 20216401523
+cd /d "C:\Program Files\Sunshine"
+cmd /c "sunshine.exe" --creds admin 20216401523
 
 echo [1.5/6] Starting Sunshine Background Service...
-cd /d "C:\Program Files\Sunshine"
 start /B "" "sunshine.exe"
 timeout /t 3 /nobreak > nul
 
