@@ -7,10 +7,10 @@ taskkill /F /IM ngrok.exe /T >nul 2>&1
 taskkill /F /IM web-server.exe /T >nul 2>&1
 timeout /t 2 /nobreak > nul
 
-echo [1/6] Ensuring Sunshine Windows Service is running...
-net start SunshineService >nul 2>&1
+echo [1/6] Starting Sunshine Background Service...
+cd /d "C:\Program Files\Sunshine"
+start /B "" "sunshine.exe"
 timeout /t 3 /nobreak > nul
-
 
 echo [2/6] Starting Streamer...
 cd /d "C:\package(moonlight)"
