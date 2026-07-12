@@ -5,6 +5,7 @@ echo [0/6] Cleaning up previous orphaned processes...
 taskkill /F /IM node.exe /T >nul 2>&1
 taskkill /F /IM ngrok.exe /T >nul 2>&1
 taskkill /F /IM web-server.exe /T >nul 2>&1
+taskkill /F /IM sunshine.exe /T >nul 2>&1
 timeout /t 2 /nobreak > nul
 
 echo [1/6] Setting Sunshine Web UI credentials automatically...
