@@ -8,7 +8,7 @@ taskkill /F /IM web-server.exe /T >nul 2>&1
 timeout /t 2 /nobreak > nul
 
 echo [1/6] Setting Sunshine Web UI credentials...
-"C:\Program Files\Sunshine\sunshine.exe" --creds admin 20216401523
+"C:\Program Files\Sunshine\sunshine.exe" "C:\Program Files\Sunshine\config\sunshine.conf" --creds admin 20216401523
 
 echo [2/6] Starting Streamer...
 cd /d "C:\package(moonlight)"
