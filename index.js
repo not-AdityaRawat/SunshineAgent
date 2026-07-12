@@ -208,19 +208,17 @@ app.use((req, res, next) => {
     return res.status(401).send('No active session.');
   }
 
-  // 1. Check if token is in query (used for initial iframe load)
+  // 1. Check if token is in query (used for initial iframe load & API fetch)
   if (req.query.sessionKey) {
     if (req.query.sessionKey === activeKey) {
-      // Set cookie and redirect to remove token from URL
+      // Set cookie and proceed without redirecting (redirect breaks CORS AJAX fetch)
       res.cookie('stream_auth', req.query.sessionKey, {
         httpOnly: true,
         sameSite: 'none',
         secure: true,
         maxAge: 4 * 60 * 60 * 1000 // 4 hours
       });
-      const url = new URL(req.originalUrl, `https://${req.headers.host}`);
-      url.searchParams.delete('sessionKey');
-      return res.redirect(url.pathname + url.search);
+      return next();
     }
     return res.status(401).send('Invalid session key in query.');
   }
