@@ -187,6 +187,15 @@ app.get('/stats', auth, (req, res) => {
 // ==========================================
 // API routes above will match first. Anything else falls through to the Stream Auth.
 
+// Permissive CORS for proxy pre-fetch
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
 // Authentication Middleware
 app.use((req, res, next) => {
   let activeKey = '';
