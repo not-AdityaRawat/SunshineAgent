@@ -20,8 +20,70 @@ app.use(cookieParser());
 const BACKEND_URL = process.env.BACKEND_URL;
 const AGENT_SECRET = process.env.AGENT_SECRET;
 const SUNSHINE_PASS = process.env.SUNSHINE_PASS;
-const SESSION_ID_FILE = 'C:\\agent\\SunshineAgent\\current_session.txt';
-const AUTH_KEY_FILE = 'C:\\agent\\SunshineAgent\\stream_auth.txt';
+
+const path = require('path');
+const SESSION_ID_FILE = path.join(__dirname, 'current_session.txt');
+const AUTH_KEY_FILE = path.join(__dirname, 'stream_auth.txt');
+
+const MOONLIGHT_DIR = 'C:\\package(moonlight)';
+const MOONLIGHT_DATA_PATH = path.join(MOONLIGHT_DIR, 'data.json');
+const MOONLIGHT_CONFIG_PATH = path.join(MOONLIGHT_DIR, 'config.json');
+const MOONLIGHT_WEB_SERVER_EXE = path.join(MOONLIGHT_DIR, 'web-server.exe');
+
+let awsInstanceId = process.env.INSTANCE_ID || os.hostname(); // Default fallback
+
+// Fetch actual AWS Instance ID on boot via IMDSv2
+async function fetchInstanceId() {
+  if (process.env.INSTANCE_ID) {
+    awsInstanceId = process.env.INSTANCE_ID;
+    return;
+  }
+
+  let retries = 5;
+  while (retries > 0) {
+    try {
+      // 1. Get IMDSv2 Token
+      const tokenRes = await axios.put('http://169.254.169.254/latest/api/token', null, {
+        headers: { 'X-aws-ec2-metadata-token-ttl-seconds': '21600' },
+        timeout: 2000
+      });
+      const token = tokenRes.data;
+
+      // 2. Fetch instance-id with token
+      const res = await axios.get('http://169.254.169.254/latest/meta-data/instance-id', {
+        headers: { 'X-aws-ec2-metadata-token': token },
+        timeout: 2000
+      });
+
+      if (res.data) {
+        awsInstanceId = res.data.trim();
+        console.log(`[AWS] Fetched Instance ID via IMDSv2: ${awsInstanceId}`);
+        return;
+      }
+    } catch (err) {
+      console.log(`[AWS] IMDSv2 fetch failed (${err.message}). Retries left: ${retries - 1}`);
+    }
+    retries--;
+    if (retries > 0) await new Promise(r => setTimeout(r, 2000)); // wait 2s before retry
+  }
+  console.log(`[AWS] Could not fetch Instance ID after retries. Falling back to ${awsInstanceId}`);
+}
+fetchInstanceId();
+
+// Global Uncaught Exception Handler
+process.on('uncaughtException', (err) => {
+  console.error('[CRASH] Uncaught Exception:', err.message);
+  console.error(err.stack);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[CRASH] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Request Logger
+app.use((req, res, next) => {
+  // console.log(`[HTTP] ${req.method} ${req.url}`);
+  next();
+});
 
 // 1. auth middleware
 function auth(req, res, next) {
@@ -31,6 +93,21 @@ function auth(req, res, next) {
   next();
 }
 
+app.set('trust proxy', 1);
+
+// Global Permissive CORS for all endpoints (health checks, API, proxy)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, ngrok-skip-browser-warning, x-agent-secret');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Credentials', 'true'); // Added for cookies just in case
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // 2. GET /health
 app.get('/health', (req, res) => {
   res.json({
@@ -38,6 +115,19 @@ app.get('/health', (req, res) => {
     uptime: os.uptime(),
     freeMemMB: Math.round(os.freemem() / 1024 / 1024)
   });
+});
+
+// 2.5. GET /stream-health — check if Moonlight web-server (port 8081) is alive
+app.get('/stream-health', auth, async (req, res) => {
+  try {
+    const r = await axios.get('http://127.0.0.1:8081/api/hosts', {
+      headers: { 'X-Forwarded-User': 'admin' },
+      timeout: 5000
+    });
+    res.json({ streamServerAlive: true, hosts: r.data?.hosts?.length || 0 });
+  } catch (err) {
+    res.json({ streamServerAlive: false, error: err.message });
+  }
 });
 
 // 3. POST /launch
@@ -58,10 +148,10 @@ app.post('/launch', auth, (req, res) => {
   }
 
   // Kill any running game first (clean state)
-  exec('taskkill /F /IM GameOverlayUI.exe 2>nul');
+  exec('taskkill /F /IM GameOverlayUI.exe 2>nul', { windowsHide: true });
 
   // Launch game via Steam protocol
-  exec(`"C:\\Program Files (x86)\\Steam\\steam.exe" -applaunch ${steamId} -fullscreen`);
+  exec(`"C:\\Program Files (x86)\\Steam\\steam.exe" -applaunch ${steamId} -fullscreen`, { windowsHide: true });
 
   res.json({ status: 'launching', steamId, sessionId });
 });
@@ -71,14 +161,14 @@ app.post('/stop', auth, (req, res) => {
   const { gameExe } = req.body;
 
   if (gameExe) {
-    exec(`taskkill /F /IM "${gameExe}"`, () => { });
+    exec(`taskkill /F /IM "${gameExe}"`, { windowsHide: true }, () => { });
   }
 
   // Kill Steam overlay
-  exec('taskkill /F /IM GameOverlayUI.exe 2>nul', () => { });
+  exec('taskkill /F /IM GameOverlayUI.exe 2>nul', { windowsHide: true }, () => { });
 
   // Clean temp files
-  exec('del /Q /F "%TEMP%\\*" 2>nul', () => { });
+  exec('del /Q /F "%TEMP%\\*" 2>nul', { windowsHide: true }, () => { });
 
   try {
     fs.writeFileSync(SESSION_ID_FILE, '');
@@ -130,7 +220,6 @@ app.post('/unpair', auth, async (req, res) => {
 // Wipes stale pair_info from Moonlight data.json and restarts web-server.exe.
 // Called when Sunshine regenerates its TLS certificate (e.g. after EC2 restart)
 // and the stored server_certificate in data.json is no longer valid.
-const MOONLIGHT_DATA_PATH = 'C:\\package(moonlight)\\data.json';
 
 app.post('/reset-moonlight-pairing', auth, (req, res) => {
   try {
@@ -150,14 +239,14 @@ app.post('/reset-moonlight-pairing', auth, (req, res) => {
     console.log('Moonlight data.json pair_info cleared.');
 
     // Restart web-server.exe so it reloads the updated data.json
-    exec('taskkill /F /IM web-server.exe 2>nul', () => {
+    exec('taskkill /F /IM web-server.exe 2>nul', { windowsHide: true }, () => {
       setTimeout(() => {
         exec(
-          'Start-Process "C:\\package(moonlight)\\web-server.exe" -WorkingDirectory "C:\\package(moonlight)" -WindowStyle Hidden',
-          { shell: 'powershell' },
+          `Start-Process "${MOONLIGHT_WEB_SERVER_EXE}" -ArgumentList "--bind-address 127.0.0.1:8081" -WorkingDirectory "${MOONLIGHT_DIR}" -WindowStyle Hidden`,
+          { shell: 'powershell', windowsHide: true },
           (err) => {
             if (err) console.error('Failed to restart web-server.exe:', err.message);
-            else console.log('web-server.exe restarted.');
+            else console.log('web-server.exe restarted robustly on 8081.');
           }
         );
       }, 1500); // Brief pause to let the process fully terminate
@@ -186,15 +275,6 @@ app.get('/stats', auth, (req, res) => {
 // STREAM AUTH & PROXY SERVER (Port 8080)
 // ==========================================
 // API routes above will match first. Anything else falls through to the Stream Auth.
-
-// Permissive CORS for proxy pre-fetch
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
-  next();
-});
 
 // Authentication Middleware
 app.use((req, res, next) => {
@@ -231,7 +311,6 @@ app.use((req, res, next) => {
   return res.status(401).send('Unauthorized Access 401');
 });
 
-// Proxy to the isolated moonlight-web-stream server running on 8081
 const proxy = createProxyMiddleware({
   target: 'http://127.0.0.1:8081',
   changeOrigin: true,
@@ -240,16 +319,32 @@ const proxy = createProxyMiddleware({
   onProxyReq: (proxyReq, req, res) => {
     // Automatically log the user in as 'admin' in moonlight-web-stream
     proxyReq.setHeader('X-Forwarded-User', 'admin');
+  },
+  onProxyReqWs: (proxyReq, req, socket, options, head) => {
+    proxyReq.setHeader('X-Forwarded-User', 'admin');
+  },
+  onProxyRes: (proxyRes, req, res) => {
+    // Strip iframe-blocking headers so Noclip can embed the stream!
+    delete proxyRes.headers['x-frame-options'];
+    delete proxyRes.headers['content-security-policy'];
+    delete proxyRes.headers['cross-origin-embedder-policy'];
+    delete proxyRes.headers['cross-origin-opener-policy'];
+  },
+  onError: (err, req, res) => {
+    console.error('[Proxy Error]', err.message);
+    if (!res.headersSent) {
+      res.status(502).json({ error: 'Stream server not responding', detail: err.message });
+    }
   }
 });
 
 app.use('/', proxy);
 
 // Configure moonlight-web-stream to listen on 127.0.0.1:8081 and start Proxy
-const MOONLIGHT_CONFIG_PATH = 'C:\\package(moonlight)\\config.json';
+
 try {
   // First, kill any existing web-server.exe so port 8080 is freed
-  exec('taskkill /F /IM web-server.exe 2>nul', () => {
+  exec('taskkill /F /IM web-server.exe 2>nul', { windowsHide: true }, () => {
 
     // Now start the proxy on port 8080
     const proxyServer = app.listen(8080, '0.0.0.0', () => {
@@ -277,11 +372,24 @@ try {
         });
       }
 
-      if (cookies.stream_auth !== activeKey) {
+      // Fallback: If third-party cookies are blocked, check the Referer header!
+      // The iframe loads stream.html?sessionKey=... which initiates the WebSocket.
+      let refererKey = null;
+      if (req.headers.referer) {
+        try {
+          const url = new URL(req.headers.referer);
+          refererKey = url.searchParams.get('sessionKey');
+        } catch (e) {}
+      }
+
+      if (cookies.stream_auth !== activeKey && refererKey !== activeKey) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
       }
+
+      // Forward WebSocket to HttpProxyMiddleware!
+      proxy.upgrade(req, socket, head);
     });
 
     // Finally, robustly update config and start web-server.exe on 8081
@@ -307,26 +415,29 @@ try {
       console.error('Failed to write moonlight config:', err.message);
     }
 
-    // Start web-server.exe robustly using spawn to capture logs
+    // Start web-server.exe robustly using PowerShell (matches start_cloud_gaming.ps1)
     setTimeout(() => {
-      const { spawn } = require('child_process');
-      const webServer = spawn('C:\\package(moonlight)\\web-server.exe', ['--bind-address', '127.0.0.1:8081'], {
-        cwd: 'C:\\package(moonlight)'
-      });
+      exec(
+        `Start-Process "${MOONLIGHT_WEB_SERVER_EXE}" -WorkingDirectory "${MOONLIGHT_DIR}" -WindowStyle Hidden`,
+        { shell: 'powershell', windowsHide: true },
+        (err) => {
+          if (err) console.error('Failed to start web-server.exe via PowerShell:', err.message);
+          else console.log('Started web-server.exe on 127.0.0.1:8081 via PowerShell');
+        }
+      );
 
-      webServer.stdout.on('data', (data) => console.log('[web-server]', data.toString().trim()));
-      webServer.stderr.on('data', (data) => console.error('[web-server ERROR]', data.toString().trim()));
-      webServer.on('error', (err) => console.error('[web-server FATAL ERROR]', err));
-      webServer.on('close', (code) => console.log(`[web-server] exited with code ${code}`));
-
-      console.log('Started web-server.exe on 127.0.0.1:8081');
-      
       // Auto-Pairing Logic (wait 5s for discovery)
       setTimeout(async () => {
         try {
           const authHeaders = { headers: { 'X-Forwarded-User': 'admin' } };
-          const hostsRes = await axios.get('http://127.0.0.1:8081/api/hosts', authHeaders);
-          
+          let hostsRes;
+          try {
+            hostsRes = await axios.get('http://127.0.0.1:8081/api/hosts', authHeaders);
+          } catch (e) {
+            console.error(`[Auto-Pair] Error fetching /api/hosts: ${e.message}`);
+            throw e;
+          }
+
           // Delete ALL unusable hosts to prevent HTTPS cert issues and zombie hosts
           let existingPairedHostId = null;
           if (hostsRes.data && hostsRes.data.hosts) {
@@ -336,60 +447,70 @@ try {
                 try {
                   const appsRes = await axios.get(`http://127.0.0.1:8081/api/apps?host_id=${h.host_id}`, authHeaders);
                   if (appsRes.data && appsRes.data.apps && appsRes.data.apps.length > 0) isReallyPaired = true;
-                } catch (e) {}
+                } catch (e) {
+                  console.error(`[Auto-Pair] Error fetching /api/apps for host ${h.host_id}: ${e.message}`);
+                }
               }
-              
+
               if (isReallyPaired) {
-                 existingPairedHostId = h.host_id;
-                 continue; // Keep perfectly good paired hosts!
+                existingPairedHostId = h.host_id;
+                continue; // Keep perfectly good paired hosts!
               }
-              await axios.delete(`http://127.0.0.1:8081/api/host?host_id=${h.host_id}`, authHeaders).catch(()=>{});
+              await axios.delete(`http://127.0.0.1:8081/api/host?host_id=${h.host_id}`, authHeaders).catch(() => { });
             }
-          }
-          
-          let hostId = existingPairedHostId;
-          
+          }          let hostId = existingPairedHostId;
+
           // Manually add host on HTTP port if we don't have a perfectly working paired host
           if (!hostId) {
-            const addRes = await axios.post('http://127.0.0.1:8081/api/host', { address: '127.0.0.1', http_port: 47989 }, authHeaders);
-            hostId = addRes.data.host.host_id;
+            try {
+              const addRes = await axios.post('http://127.0.0.1:8081/api/host', { address: '127.0.0.1', http_port: 47989 }, authHeaders);
+              hostId = addRes.data.host.host_id;
+            } catch (e) {
+              console.error(`[Auto-Pair] Error POSTing /api/host: ${e.message}`);
+              throw e;
+            }
           }
-          
+
           let isPaired = !!existingPairedHostId;
 
           if (!isPaired) {
             console.log(`[Auto-Pair] Host ${hostId} is not paired or has a stale certificate. Re-adding...`);
-            
-            // WE MUST DELETE THE HOST IF IT EXISTS!
-            // If we don't delete it, moonlight-web-stream retains the old client certificate.
-            // When it calls `/api/pair`, it will hit Sunshine with the OLD certificate, 
-            // and Sunshine will reject it with 401 Unauthorized before pairing even starts!
+
             if (hostId) {
-                await axios.delete(`http://127.0.0.1:8081/api/host?host_id=${hostId}`, authHeaders).catch(()=>{});
+              await axios.delete(`http://127.0.0.1:8081/api/host?host_id=${hostId}`, authHeaders).catch(() => { });
             }
-            
-            // Add a fresh host (this generates a clean slate with no client certificate)
-            const addRes = await axios.post('http://127.0.0.1:8081/api/host', { address: '127.0.0.1', http_port: 47989 }, authHeaders);
-            hostId = addRes.data.host.host_id;
+
+            try {
+              const addRes = await axios.post('http://127.0.0.1:8081/api/host', { address: '127.0.0.1', http_port: 47989 }, authHeaders);
+              hostId = addRes.data.host.host_id;
+            } catch (e) {
+              console.error(`[Auto-Pair] Error POSTing fresh /api/host: ${e.message}`);
+              throw e;
+            }
 
             console.log(`[Auto-Pair] Fresh host added with ID ${hostId}. Requesting PIN...`);
-            const pairRes = await axios.post('http://127.0.0.1:8081/api/pair', { host_id: hostId }, {
-              ...authHeaders,
-              responseType: 'stream'
-            });
+            let pairRes;
+            try {
+              pairRes = await axios.post('http://127.0.0.1:8081/api/pair', { host_id: hostId }, {
+                ...authHeaders,
+                responseType: 'stream'
+              });
+            } catch (e) {
+              console.error(`[Auto-Pair] Error POSTing /api/pair: ${e.message}`);
+              throw e;
+            }
 
             pairRes.data.on('data', async (chunk) => {
               const text = chunk.toString().trim();
               if (!text) return;
-              
-              // Streams can send multiple JSON chunks separated by newlines
-              const lines = text.split('\\n');
+
+              const lines = text.split('\n');
               for (const line of lines) {
                 if (!line.trim()) continue;
                 try {
                   const parsed = JSON.parse(line.trim());
                   if (parsed.Pin) {
-                    console.log(`[Auto-Pair] Got PIN: ${parsed.Pin}. Waiting 2 seconds for pair request to initialize...`);
+                    // console.log(`[Auto-Pair] Got PIN: ${parsed.Pin}. Waiting 2 seconds for pair request to initialize...`);
                     setTimeout(async () => {
                       const https = require('https');
                       try {
@@ -419,7 +540,7 @@ try {
         } catch (e) {
           console.error('[Auto-Pair] Failed:', e.message);
         }
-      }, 5000);
+      }, 2000);
 
     }, 1500);
   });
@@ -432,7 +553,10 @@ try {
 async function notifyBackendReady() {
   if (!BACKEND_URL) return;
   try {
-    await axios.post(`${BACKEND_URL}/instance/ready`, {}, {
+    await axios.post(`${BACKEND_URL}/instance/ready`, {
+      instanceId: awsInstanceId,
+      agentUrl: process.env.NGROK_DOMAIN
+    }, {
       headers: { 'x-agent-secret': AGENT_SECRET }
     });
     console.log('Notified backend instance is ready');
@@ -458,6 +582,8 @@ setInterval(async () => {
     }
 
     await axios.post(`${BACKEND_URL}/instance/heartbeat`, {
+      instanceId: awsInstanceId,
+      agentUrl: process.env.NGROK_DOMAIN,
       activeStreams,
       freeMemMB: Math.round(os.freemem() / 1024 / 1024)
     }, {
@@ -479,7 +605,7 @@ setInterval(async () => {
     );
     // If 200 response: handle spot interruption
     if (res.status === 200) {
-      await axios.post(`${BACKEND_URL}/instance/interruption`, {}, {
+      await axios.post(`${BACKEND_URL}/instance/interruption`, { instanceId: awsInstanceId }, {
         headers: { 'x-agent-secret': AGENT_SECRET }
       });
     }
@@ -495,6 +621,7 @@ setInterval(async () => {
   if (freeMemMB < 1500) {
     try {
       await axios.post(`${BACKEND_URL}/instance/alert`, {
+        instanceId: awsInstanceId,
         type: 'LOW_MEMORY',
         freeMemMB
       }, {

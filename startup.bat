@@ -5,23 +5,11 @@ echo [0/6] Cleaning up previous orphaned processes...
 taskkill /F /IM node.exe /T >nul 2>&1
 taskkill /F /IM ngrok.exe /T >nul 2>&1
 taskkill /F /IM web-server.exe /T >nul 2>&1
-taskkill /F /IM sunshine.exe /T >nul 2>&1
 timeout /t 2 /nobreak > nul
 
-echo [1/6] Initializing Sunshine Database...
-del /q "C:\Program Files\Sunshine\config\sunshine_state.json" >nul 2>&1
-cd /d "C:\Program Files\Sunshine"
-start "" "sunshine.exe"
-timeout /t 3 /nobreak > nul
-taskkill /F /IM sunshine.exe /T >nul 2>&1
-timeout /t 1 /nobreak > nul
-
-echo [1.5/6] Setting Sunshine Web UI credentials...
-cmd /c "sunshine.exe" --creds admin 20216401523
-
-echo [1.5/6] Starting Sunshine Background Service...
-start /B "" "sunshine.exe"
-timeout /t 3 /nobreak > nul
+echo [1/6] Sunshine is now fully managed by its own official Windows Service.
+echo        (Do not attempt to launch it here in Session 0 or it will crash!)
+timeout /t 2 /nobreak > nul
 
 
 echo [2/6] Starting Streamer...

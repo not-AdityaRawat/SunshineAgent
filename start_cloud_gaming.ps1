@@ -2,16 +2,16 @@
 Start-Process "C:\Program Files\Sunshine\sunshine.exe" -WindowStyle Hidden
 
 # Start Node.js Agent
-Start-Process "node" -ArgumentList "C:\Agent\SunshineAgent\index.js" -WorkingDirectory "C:\Agent\SunshineAgent" -WindowStyle Hidden
+Start-Process "node" -ArgumentList "C:\SunshineAgent-main\index.js" -WorkingDirectory "C:\SunshineAgent-main" -WindowStyle Hidden
 
-# Start Moonlight Web Stream Web Server
-Start-Process "C:\package(moonlight)\web-server.exe" -WorkingDirectory "C:\package(moonlight)" -WindowStyle Hidden
+# Start Moonlight Web Stream Web Server (Update path as needed)
+Start-Process "C:\moonlight-web-stream\web-server.exe" -WorkingDirectory "C:\moonlight-web-stream" -WindowStyle Hidden
 
-# Start Moonlight Web Stream Streamer
-Start-Process "C:\package(moonlight)\streamer.exe" -WorkingDirectory "C:\package(moonlight)" -WindowStyle Hidden
+# Start Moonlight Web Stream Streamer (Update path as needed)
+Start-Process "C:\moonlight-web-stream\Streamer.exe" -WorkingDirectory "C:\moonlight-web-stream" -WindowStyle Hidden
 
-# Start Nginx
-Start-Process "C:\Users\Administrator\Downloads\nginx-1.31.2\nginx-1.31.2\nginx.exe" -WorkingDirectory "C:\Users\Administrator\Downloads\nginx-1.31.2\nginx-1.31.2" -WindowStyle Hidden
+# Start Nginx (Update path as needed)
+Start-Process "C:\nginx\nginx.exe" -WorkingDirectory "C:\nginx" -WindowStyle Hidden
 
 # Wait 5 seconds for services to start
 Start-Sleep -Seconds 5
