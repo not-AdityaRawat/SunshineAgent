@@ -150,10 +150,10 @@ app.post('/launch', auth, (req, res) => {
   // Only launch a game if steamId is not '0' (0 means we're just syncing keys for Playnite)
   if (steamId !== '0') {
     // Kill any running game first (clean state)
-    exec('taskkill /F /IM GameOverlayUI.exe 2>nul', { windowsHide: true });
+    require('child_process').spawn('taskkill', ['/F', '/IM', 'GameOverlayUI.exe'], { windowsHide: true });
 
-    // Launch game via Steam protocol
-    exec(`"C:\\Program Files (x86)\\Steam\\steam.exe" -applaunch ${steamId} -fullscreen`, { windowsHide: true });
+    // Launch game via Steam protocol directly without spawning cmd.exe shell
+    require('child_process').spawn('C:\\Program Files (x86)\\Steam\\steam.exe', ['-applaunch', steamId, '-fullscreen'], { windowsHide: true, detached: true });
   }
 
   res.json({ status: 'launching', steamId, sessionId });
@@ -162,16 +162,17 @@ app.post('/launch', auth, (req, res) => {
 // 4. POST /stop
 app.post('/stop', auth, (req, res) => {
   const { gameExe } = req.body;
+  const { spawn } = require('child_process');
 
   if (gameExe) {
-    exec(`taskkill /F /IM "${gameExe}"`, { windowsHide: true }, () => { });
+    spawn('taskkill', ['/F', '/IM', gameExe], { windowsHide: true });
   }
 
   // Kill Steam overlay
-  exec('taskkill /F /IM GameOverlayUI.exe 2>nul', { windowsHide: true }, () => { });
+  spawn('taskkill', ['/F', '/IM', 'GameOverlayUI.exe'], { windowsHide: true });
 
-  // Clean temp files
-  exec('del /Q /F "%TEMP%\\*" 2>nul', { windowsHide: true }, () => { });
+  // Clean temp files (requires shell, so use exec but with hidden window)
+  exec('del /Q /F "%TEMP%\\*" 2>nul', { windowsHide: true });
 
   try {
     fs.writeFileSync(SESSION_ID_FILE, '');
