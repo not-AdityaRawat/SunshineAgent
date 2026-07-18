@@ -81,7 +81,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Request Logger
 app.use((req, res, next) => {
-  // console.log(`[HTTP] ${req.method} ${req.url}`);
+  console.log(`[HTTP] ${req.method} ${req.url}`);
   next();
 });
 
@@ -147,11 +147,14 @@ app.post('/launch', auth, (req, res) => {
     console.error('Error writing session data:', err);
   }
 
-  // Kill any running game first (clean state)
-  exec('taskkill /F /IM GameOverlayUI.exe 2>nul', { windowsHide: true });
+  // Only launch a game if steamId is not '0' (0 means we're just syncing keys for Playnite)
+  if (steamId !== '0') {
+    // Kill any running game first (clean state)
+    exec('taskkill /F /IM GameOverlayUI.exe 2>nul', { windowsHide: true });
 
-  // Launch game via Steam protocol
-  exec(`"C:\\Program Files (x86)\\Steam\\steam.exe" -applaunch ${steamId} -fullscreen`, { windowsHide: true });
+    // Launch game via Steam protocol
+    exec(`"C:\\Program Files (x86)\\Steam\\steam.exe" -applaunch ${steamId} -fullscreen`, { windowsHide: true });
+  }
 
   res.json({ status: 'launching', steamId, sessionId });
 });
@@ -379,7 +382,7 @@ try {
         try {
           const url = new URL(req.headers.referer);
           refererKey = url.searchParams.get('sessionKey');
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (cookies.stream_auth !== activeKey && refererKey !== activeKey) {
@@ -458,7 +461,7 @@ try {
               }
               await axios.delete(`http://127.0.0.1:8081/api/host?host_id=${h.host_id}`, authHeaders).catch(() => { });
             }
-          }          let hostId = existingPairedHostId;
+          } let hostId = existingPairedHostId;
 
           // Manually add host on HTTP port if we don't have a perfectly working paired host
           if (!hostId) {
@@ -510,7 +513,7 @@ try {
                 try {
                   const parsed = JSON.parse(line.trim());
                   if (parsed.Pin) {
-                    // console.log(`[Auto-Pair] Got PIN: ${parsed.Pin}. Waiting 2 seconds for pair request to initialize...`);
+                    console.log(`[Auto-Pair] Got PIN: ${parsed.Pin}. Waiting 2 seconds for pair request to initialize...`);
                     setTimeout(async () => {
                       const https = require('https');
                       try {
