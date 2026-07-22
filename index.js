@@ -150,10 +150,10 @@ app.post('/launch', auth, (req, res) => {
   // Only launch a game if steamId is not '0' (0 means we're just syncing keys for Playnite)
   if (steamId !== '0') {
     // Kill any running game first (clean state)
-    require('child_process').spawn('taskkill', ['/F', '/IM', 'GameOverlayUI.exe'], { windowsHide: true });
+    exec('taskkill /F /IM GameOverlayUI.exe 2>nul', { windowsHide: true });
 
-    // Launch game via Steam protocol directly without spawning cmd.exe shell
-    require('child_process').spawn('C:\\Program Files (x86)\\Steam\\steam.exe', ['-applaunch', steamId, '-fullscreen'], { windowsHide: true, detached: true });
+    // Launch game via Steam protocol
+    exec(`"C:\\Program Files (x86)\\Steam\\steam.exe" -applaunch ${steamId} -fullscreen`, { windowsHide: true });
   }
 
   res.json({ status: 'launching', steamId, sessionId });
@@ -162,17 +162,16 @@ app.post('/launch', auth, (req, res) => {
 // 4. POST /stop
 app.post('/stop', auth, (req, res) => {
   const { gameExe } = req.body;
-  const { spawn } = require('child_process');
 
   if (gameExe) {
-    spawn('taskkill', ['/F', '/IM', gameExe], { windowsHide: true });
+    exec(`taskkill /F /IM "${gameExe}"`, { windowsHide: true }, () => { });
   }
 
   // Kill Steam overlay
-  spawn('taskkill', ['/F', '/IM', 'GameOverlayUI.exe'], { windowsHide: true });
+  exec('taskkill /F /IM GameOverlayUI.exe 2>nul', { windowsHide: true }, () => { });
 
-  // Clean temp files (requires shell, so use exec but with hidden window)
-  exec('del /Q /F "%TEMP%\\*" 2>nul', { windowsHide: true });
+  // Clean temp files
+  exec('del /Q /F "%TEMP%\\*" 2>nul', { windowsHide: true }, () => { });
 
   try {
     fs.writeFileSync(SESSION_ID_FILE, '');
@@ -313,6 +312,25 @@ app.use((req, res, next) => {
   }
 
   return res.status(401).send('Unauthorized Access 401');
+});
+
+app.get('/stream.html', async (req, res, next) => {
+  try {
+    const url = 'http://127.0.0.1:8081/stream.html' + (req._parsedUrl.search || '');
+    const response = await axios.get(url, { responseType: 'text' });
+    let html = response.data;
+    const injection = `<script>
+      if (!localStorage.getItem('moonlight.bitrate')) {
+        localStorage.setItem('moonlight.bitrate', '15000');
+        localStorage.setItem('moonlight.width', '1920');
+        localStorage.setItem('moonlight.height', '1080');
+      }
+    </script>`;
+    html = html.replace('</body>', injection + '</body>');
+    res.send(html);
+  } catch (err) {
+    next();
+  }
 });
 
 const proxy = createProxyMiddleware({
