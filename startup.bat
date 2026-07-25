@@ -7,6 +7,9 @@ taskkill /F /IM ngrok.exe /T >nul 2>&1
 taskkill /F /IM web-server.exe /T >nul 2>&1
 timeout /t 2 /nobreak > nul
 
+echo [0.5/6] Wiping stale Moonlight data to prevent ghost hosts...
+del /F /Q "C:\package(moonlight)\data.json" >nul 2>&1
+
 echo [1/6] Sunshine is now fully managed by its own official Windows Service.
 echo        (Do not attempt to launch it here in Session 0 or it will crash!)
 timeout /t 2 /nobreak > nul
@@ -22,11 +25,5 @@ start /B node index.js > C:\Agent\agent.log 2>&1
 
 echo [4/6] Waiting a few seconds for services to initialize...
 timeout /t 5 /nobreak > nul
-
-echo [5/6] Authenticating Ngrok...
-"C:\Agent\ngrok.exe" config add-authtoken 3GK20QdTW8L53v71M3GKz3uyFsq_2AS5Bochuvh17XStC9Dw8
-
-echo [6/6] Starting Ngrok Tunnel...
-start "Ngrok" /B "C:\Agent\ngrok.exe" http --domain=juiciness-subsidy-operating.ngrok-free.dev 8080 > C:\Agent\ngrok.log 2>&1
 
 echo All services launched!
